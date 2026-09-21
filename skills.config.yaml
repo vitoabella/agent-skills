@@ -1,0 +1,18 @@
+# Edit settings by hand or via skillkit. skillkit reset copies defaults onto settings.
+# This machine's workspace path and custom root belong in skills.config.local.yaml.
+defaults:
+  scope: workspace
+  roots:
+  - meta
+  - shared
+  skills:
+    library: manual
+    create-skill: manual
+settings:
+  scope: workspace
+  roots:
+  - meta
+  - shared
+  skills:
+    library: manual
+    create-skill: manual

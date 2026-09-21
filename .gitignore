@@ -1,0 +1,10 @@
+skills.config.local.yaml
+custom/
+catalog/
+.obsidian/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
