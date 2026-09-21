@@ -1,38 +1,75 @@
 # Skill kit
 
-Skills live in this repository. Cursor, Claude Code, GitHub Copilot, and Antigravity only get links, so `/name` shows up in each IDE and the files stay here.
+## Introduction
+
+This repository is a library of [Agent Skills](https://agentskills.io/specification). A skill is a folder with a `SKILL.md` file: a short description, plus the steps an agent should follow.
+
+It is for Cursor, Claude Code, GitHub Copilot, and Antigravity. You write each skill once, in this repo. The `skillkit` command links that folder into the IDE, so `/name` shows up in the project you are working in.
+
+That keeps one copy of every skill. The catalog can search it. Each skill has a state: on disk only, available as a slash command, or offered by the IDE when the description matches the task.
+
+## Layout
 
 ```text
 agent-skills/
-├── README.md                 # install and how the kit works
-├── pyproject.toml            # pip install
-├── skills.config.yaml        # defaults, and which skills are linked
-├── skills.config.local.yaml  # your machine only, not in git
-├── meta/
-│   ├── library/SKILL.md      # /library
-│   └── create-skill/SKILL.md # /create-skill
-├── shared/                   # skills published with this repo
-├── custom/                   # your skills, gitignored
-├── templates/skill/SKILL.md  # copied by skillkit add
-└── skillkit/                 # the skillkit command
+├── README.md                         # this guide
+├── pyproject.toml                    # package metadata; pip install -e . installs the skillkit command
+├── skills.config.yaml                # defaults (what reset restores) and settings (scope, roots, which skills are linked)
+├── skills.config.local.yaml          # this computer only: project path and extra roots such as custom/. Git ignores it.
+├── .gitignore                        # keeps personal skills, the local config, and the search catalog out of git
+├── meta/                             # skills that operate the kit. They ship with the repository.
+│   ├── library/SKILL.md              # /library — find, enable, move, install, and reset through the agent
+│   └── create-skill/SKILL.md         # /create-skill — collect the details and scaffold a new skill
+├── shared/                           # skills published for every clone. Created the first time you add one here.
+├── custom/                           # your own skills. Git ignores this folder. A private repo can live inside it.
+├── templates/
+│   └── skill/SKILL.md                # skeleton that skillkit add copies. Edit it to change every new skill.
+├── catalog/                          # search index built by skillkit find and skillkit index. Git ignores it.
+│   ├── index.yaml                    # names and descriptions from meta/ and shared/
+│   └── index.local.yaml              # names and descriptions from custom/. Written when those skills exist.
+└── skillkit/                         # the skillkit command
+    ├── __init__.py                   # package version
+    ├── __main__.py                   # python -m skillkit
+    ├── cli.py                        # subcommands: add, find, enable, install, and the rest
+    ├── config.py                     # load, overlay, and save the two YAML config files
+    ├── skills.py                     # discover skills, check the Agent Skills rules, add, move, and remove
+    ├── install.py                    # create and remove IDE links (junctions on Windows, symlinks elsewhere)
+    └── index.py                      # build catalog/ and answer skillkit find
 ```
 
-## Install
+## Getting started
+
+### Install
+
+You need Python 3.11 or newer.
 
 ```text
-git clone <repository-url>
+git clone https://github.com/vitoabella/agent-skills.git
 cd agent-skills
 pip install -e .
 skillkit install --workspace "<path-to-a-project>"
 ```
 
-Open that project and type `/library`. A project you have not installed into has no slash commands from this kit. Run `skillkit install --workspace` again to point at another project.
+Open that project. `/library` and `/create-skill` appear in the slash menu.
 
-The install adds junctions named `library` and `create-skill`. It does not move or delete skill folders that are already real directories. If a folder with one of those names already exists and is not a link, install stops and leaves it alone.
+Install remembers the project in `skills.config.local.yaml`. Later you can run `skillkit install` with no path. Pass `--workspace` again when you want the same skills in another project.
 
-## Your skills
+Install links each enabled skill. On Windows the link is a junction. On macOS and Linux it is a symlink. If a real folder already sits at that path, install stops and leaves the folder as it is.
 
-`custom/` is listed in `.gitignore`, so personal skills are never part of this repository. Tell the kit to use it by creating `skills.config.local.yaml`:
+Links go to:
+
+- `<project>/.claude/skills/<name>` — Claude Code, Cursor, and Copilot
+- `<project>/.agents/skills/<name>` — Antigravity. Cursor and Copilot also read this folder.
+
+Cursor and Copilot can list each command twice, because they read both folders. `skillkit doctor` reports that.
+
+Install also gitignores those links in the project, along with `.skillkit-managed`, the list of links this kit is allowed to remove. Point `--workspace` at a project you write code in. Install refuses the kit repository itself.
+
+### Use the kit
+
+#### Create a new skill
+
+Personal skills go in `custom/`, which git ignores. Turn that folder on once. Create `skills.config.local.yaml` in the kit repo:
 
 ```yaml
 roots:
@@ -41,11 +78,62 @@ roots:
   - custom
 ```
 
-`skillkit add` writes there and creates `custom/` if needed. To keep those skills in git, initialize a separate private repository inside `custom/` and push that on its own. Push this kit only when `meta/`, `shared/`, or the tooling changes.
+In the IDE, run `/create-skill`. It asks for the name, description, and category, then writes the skill.
 
-## Commands
+From the terminal, the same step is:
 
-Edit skills in this repo. IDE folders are junctions back to these files.
+```text
+skillkit add --name lecture-notes --description "Turn a lecture into notes. Use when the user shares lecture material." --category school
+```
+
+The name is 1–64 characters: lowercase letters, numbers, and single hyphens, and it matches the folder. The description says what the skill does and when to use it, in at most 1024 characters. The steps belong in the body.
+
+That command writes `custom/school/lecture-notes/SKILL.md` from the template and leaves the skill off the slash menu. Edit the file, then:
+
+```text
+skillkit enable lecture-notes manual
+```
+
+`manual` adds `/lecture-notes`. The model reads the skill when you call it.
+
+A skill with separate phases gets one file per phase:
+
+```text
+skillkit add --name deploy-app --description "Deploy the app. Use when shipping." --category shipping --phase staging --phase production
+```
+
+`SKILL.md` tells the agent when to open each file in `modules/`. Long reference material goes in `references/`. Helpers go in `scripts/`. Mention those files from the skill or the module that needs them.
+
+#### Bring in skills you already have
+
+Copy each existing skill folder into `custom/<category>/<name>/`, including `scripts/`, `references/`, and `modules/` when they are part of the skill. The folder name is the skill name, and `SKILL.md` sits inside it:
+
+```text
+custom/school/lecture-notes/SKILL.md
+```
+
+Before you enable it:
+
+- `name` in the frontmatter matches the folder.
+- `description` is present and at most 1024 characters.
+- Every file in `modules/` is named from `SKILL.md`, and every `modules/...` path in `SKILL.md` exists.
+- `custom` is listed under `roots` in `skills.config.local.yaml`, as in the section above.
+
+Then check the skill and link it:
+
+```text
+skillkit validate
+skillkit enable lecture-notes manual
+skillkit install
+```
+
+`validate` checks names, descriptions, and module paths. `enable` records the slash command and refreshes IDE links when a project is already saved. `install` creates the links if you have not installed yet.
+
+### Maintain the library
+
+Edit skills in this repository. The IDE folders are links back to these files.
+
+**From the terminal**
 
 ```text
 skillkit find QUERY
@@ -58,45 +146,89 @@ skillkit move NAME --category CATEGORY
 skillkit install --workspace PATH
 skillkit reset
 skillkit doctor
+skillkit validate
 ```
 
-`find` prints a few paths and descriptions. It does not print skill bodies. The first `find` builds `catalog/index.yaml`, which is gitignored.
+| Command | What it does |
+| --- | --- |
+| `find` | Prints a few matching paths and descriptions. The first run builds `catalog/`. |
+| `add` | Creates a skill and leaves it off the slash menu. |
+| `enable NAME manual` | Adds `/NAME`. The model reads it when you call it. |
+| `enable NAME auto` | Adds `/NAME` and lets the IDE open it when the description matches the task. The name and description are sent on every turn. |
+| `disable` | Takes it off the slash menu. The files stay on disk. |
+| `remove` | Deletes the skill folder and its IDE links. |
+| `move` | Changes the category. Add `--root shared` or `--root custom` to change which tree it lives in. |
+| `install` | Refreshes IDE links for every manual and auto skill. |
+| `reset` | Copies `defaults` onto `settings` in `skills.config.yaml` and relinks. `skills.config.local.yaml` and `custom/` stay as they are. |
+| `doctor` | Checks links, the custom root, and the catalog. |
+| `validate` | Checks skill files against the Agent Skills rules. |
 
-`add` leaves the skill unlinked. `enable NAME manual` adds `/NAME`. `auto` lets the IDE select the skill from its description. `disable` takes it off the menu and leaves the files.
+A skill with no entry under `settings.skills` is in the library: on disk, visible to `skillkit find`, and absent from the slash menu. New skills stay there until you enable them.
 
-`reset` copies `defaults` onto `settings` in `skills.config.yaml` and relinks. It does not change `skills.config.local.yaml` or `custom/`.
+**From the IDE**
 
-Pass `--root shared` to `add` or `move` when the skill should ship with the kit. `shared/` is created the first time you do that.
+After install, two skills maintain the kit:
 
-## States
+- `/library` finds skills, enables and disables them, moves and removes them, installs links, and resets settings. It runs `skillkit` for you.
+- `/create-skill` scaffolds a new skill in `custom/` and leaves it unlinked until you ask to enable it.
 
-Stored under `settings.skills` in `skills.config.yaml`. A missing name means library.
+## Customization options for power users
 
-- **library** — on disk only. `skillkit find` can see it. It is not in the slash menu.
-- **manual** — linked, so `/name` autocompletes. The model reads the skill when you call it. This is the usual choice, and it keeps the skill body out of the prompt until you call it.
-- **auto** — linked, and the IDE may open it when the description matches the task. Each auto skill's name and description are sent on every turn.
+**Config files.** `skills.config.yaml` holds `defaults` and `settings`. `defaults` is what `skillkit reset` restores. `settings` is what the kit uses: `scope`, `roots`, and a map of skill name to state.
 
-`description` is required and at most 1024 characters. It labels the slash menu. For an auto skill it is also the only text the model sees before it opens the file, so say what the skill does and when to use it. The steps belong in the body.
+`skills.config.local.yaml` is for this machine, and git ignores it. A key here replaces the same key from `settings`. Install writes `workspace` into this file. When you add a root, list the full set:
 
-## Modules
-
-Optional. Use them when one skill has separate phases, so the agent reads one part instead of the whole procedure. `SKILL.md` says when to read each file. The category is the folder name, such as `school` in `custom/school/lecture-notes/`.
-
-```text
-skillkit add --name deploy-app --description "Deploy the app. Use when shipping." --category shipping --root shared --phase staging --phase production
+```yaml
+workspace: C:\path\to\your\project
+roots:
+  - meta
+  - shared
+  - custom
 ```
 
-## Where the links go
+`meta` and `shared` are always included, even if this list omits them.
 
-`skillkit install` does not copy skill files.
+**Scope.** `workspace` is the default. Links go into one project, as described under Install. Set `scope: user` under `settings` to link every project on the machine:
 
-In a project it links each manual and auto skill into:
+- `~/.claude/skills`
+- `~/.gemini/config/skills`
+- `~/.copilot/skills`
 
-- `<project>/.claude/skills/<name>` — Claude Code, Cursor, and Copilot
-- `<project>/.agents/skills/<name>` — Antigravity; Cursor and Copilot also read this
+Then run `skillkit install`.
 
-Cursor and Copilot may list the command twice. That is how `/name` exists in all four IDEs. `skillkit doctor` reports it.
+**States.** Stored under `settings.skills`.
 
-Those links are gitignored in the project, along with `.skillkit-managed`, which is the list install is allowed to remove. Do not install into this kit repo.
+- **library** — on disk, searchable, off the slash menu.
+- **manual** — linked as `/name`. This is the usual choice. The file gets `disable-model-invocation: true`, so the body stays out of the prompt until you call the skill.
+- **auto** — linked, and the IDE may open it from the description alone. Each auto skill's name and description go out on every turn.
 
-For every project on the machine, set `scope: user` under `settings` and install. Links then go to `~/.claude/skills`, `~/.gemini/config/skills`, and `~/.copilot/skills`.
+**Description.** Required, at most 1024 characters. It labels the slash menu. For an auto skill it is also the only text the model sees before it opens the file, so say what the skill does and when to use it.
+
+**Roots.** `meta/` ships the kit skills. `shared/` ships skills you want in every clone. Pass `--root shared` to `add` or `move` for those. `custom/` is yours. To keep personal skills in git, initialize a separate private repository inside `custom/` and push that on its own.
+
+**Template.** `templates/skill/SKILL.md` is what `skillkit add` copies. The placeholders are `{{name}}`, `{{description}}`, and `{{instructions}}`.
+
+**Where the command looks.** After `pip install -e .`, `skillkit` finds this repo from the installed package. Set `SKILLKIT_ROOT` to the repo path when you need to point at a specific clone.
+
+**Catalog.** `skillkit index` rebuilds `catalog/`. `skillkit find` reads that index and prints paths and descriptions. `skillkit doctor` warns when a skill is missing from it.
+
+## Contributing
+
+Issues and pull requests are welcome on [github.com/vitoabella/agent-skills](https://github.com/vitoabella/agent-skills).
+
+1. Fork the repository and create a branch.
+2. Put a skill that should ship with the kit in `shared/` (`skillkit add --root shared`). Put command changes in `skillkit/`.
+3. Run `skillkit validate`.
+4. Open a pull request that says what changed and why.
+
+Leave `custom/`, `skills.config.local.yaml`, and `catalog/` untracked. They are personal or generated. Push this repository when `meta/`, `shared/`, or the tooling changes.
+
+## Credits
+
+### Buy me a coffee
+
+If this kit saves you time, feel free to send me a thank you :)
+
+### A note from me
+
+I'm Vito. I wanted one place to write agent skills, and `/name` in whichever IDE I opened that day. This repository is that place: the files stay here, and the editors get links. Thanks for using it.
